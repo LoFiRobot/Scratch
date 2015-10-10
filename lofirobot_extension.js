@@ -747,8 +747,8 @@
       [' ', 'ustaw serwo na wyjściu %m.output na pozycję %n', 'serwo', 'OUTPUT 1', 180],
       ['r', 'odczytaj wejście %m.input', 'readINPUTanalog', 'INPUT 1'],
       ['r', 'czujnik odległości', 'readUltrasound', 'INPUT 1'],
-     // [' ', 'ustaw BUZZER jako %m.stan', 'buzzer', 'włączony'],
-      ['h', 'kiedy %m.input %m.ops %n%', 'whenInput', 'INPUT 1', '>', 50],
+      [' ', 'ustaw BUZZER jako %m.stan', 'buzzer', 'włączony'],
+    //  ['h', 'kiedy %m.input %m.ops %n%', 'whenInput', 'INPUT 1', '>', 50],
    
 
  
