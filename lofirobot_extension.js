@@ -582,6 +582,7 @@
   }
   
   ext.readUltrasound = function(input) {
+ 
   setInterval(function() {
          var msg = new Uint8Array([0xF0,0x08,14,0xF7]);
     device.send(msg.buffer);
@@ -593,7 +594,7 @@
     
     }, 1000);
 
-  
+  }
 
 
       	//console.log(storedInputData[i]);
