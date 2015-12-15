@@ -119,7 +119,7 @@
     // ping device regularly to check connection
     pinger = setInterval(function() {
       if (pinging) {
-        if (++pingCount > 500) {
+        if (++pingCount > 1000) {
           clearInterval(pinger);
           pinger = null;
           connected = false;
