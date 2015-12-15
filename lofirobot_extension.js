@@ -740,7 +740,7 @@
       ['r', 'map %n from %n %n to %n %n', 'mapValues', 50, 0, 100, -240, 240]
     ],
         pl: [
-      ['h', 'kiedy podłączono robota', 'whenConnected'],
+    //  ['h', 'kiedy podłączono robota', 'whenConnected'],
       [' ', 'obracaj silnik %m.silnik w  kierunku %m.kierunek z mocą %n', 'silnik1', 'M1','przód', 255],
       [' ', 'ustaw wyjście %m.output na wartość  %n%', 'setOUTPUT', 'OUTPUT 1', 100],
       [' ', 'ustaw wyjście %m.output jako  %m.stan', 'setOUTPUTdigital', 'OUTPUT 1', 'włączony'],
