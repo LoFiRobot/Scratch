@@ -583,7 +583,7 @@
   
   ext.readUltrasound = function(input) {
  
-   
+        setTimeout(function() {
          var msg = new Uint8Array([0xF0,0x08,14,0xF7]);
     device.send(msg.buffer);
     
@@ -592,16 +592,12 @@
   	distance = 1000;
   	}+   
 
-  }
 
++        }, 500);
 
-      	//console.log(storedInputData[i]);
-    //console.log(distance);
-    
-    //this.arduino.board.sp.write(new Buffer([0xF0, 0x08, pinNumber, 0xF7])
-  
-  return distance;
-  
+    return distance;
+ 
+
   }
   
   
