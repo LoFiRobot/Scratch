@@ -119,7 +119,7 @@
     // ping device regularly to check connection
     pinger = setInterval(function() {
       if (pinging) {
-        if (++pingCount > 1000) {
+        if (++pingCount > 2000) {
           clearInterval(pinger);
           pinger = null;
           connected = false;
@@ -136,7 +136,7 @@
         queryFirmware();
         pinging = true;
       }
-    }, 100);
+    }, 200);
   }
 
   function hasCapability(pin, mode) {
