@@ -588,6 +588,10 @@
     var msg = new Uint8Array([0xF0,0x08,14,0xF7]);
     device.send(msg.buffer);
     
+           setTimeout(function() {
+        //  notifyConnection = false;
+        }, 100);
+    
   	var distance = dist_read;
   	if (distance == 0) {
   	distance = 1000;
