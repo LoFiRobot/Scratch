@@ -753,8 +753,8 @@
 
  
  
-      ['-'],
-      ['r', 'mapuj %n od %n %n do %n %n', 'mapValues', 50, 0, 100, -240, 240]
+     // ['-'],
+    //  ['r', 'mapuj %n od %n %n do %n %n', 'mapValues', 50, 0, 100, -240, 240]
     ]
   };
 
