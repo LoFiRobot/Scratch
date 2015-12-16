@@ -453,12 +453,12 @@
 		if (direction == 'przód') {
      		digitalWrite(2, HIGH);
       		digitalWrite(4, LOW);
-      		analogWrite(3, speed);
+      		analogWrite(3, speed*2.55);
       	}		
       	if (direction == 'tył') {
      		digitalWrite(2, LOW);
       		digitalWrite(4, HIGH);
-      		analogWrite(3, speed);
+      		analogWrite(3, speed*2.55);
       	}
       	
     }
@@ -467,12 +467,12 @@
 		if (direction == 'przód') {
      		digitalWrite(7, HIGH);
       		digitalWrite(8, LOW);
-      		analogWrite(5, speed);
+      		analogWrite(5, speed*2.55);
       	}		
       	if (direction == 'tył') {
      		digitalWrite(7, LOW);
       		digitalWrite(8, HIGH);
-      		analogWrite(5, speed);
+      		analogWrite(5, speed*2.55);
       	}
      }
  
@@ -741,7 +741,7 @@
     ],
         pl: [
     //  ['h', 'kiedy podłączono robota', 'whenConnected'],
-      [' ', 'obracaj silnik %m.silnik w  kierunku %m.kierunek z mocą %n', 'silnik1', 'M1','przód', 255],
+      [' ', 'obracaj silnik %m.silnik w  kierunku %m.kierunek z mocą %n', 'silnik1', 'M1','przód', 100],
       [' ', 'ustaw wyjście %m.output na wartość  %n%', 'setOUTPUT', 'OUTPUT 1', 100],
       [' ', 'ustaw wyjście %m.output jako  %m.stan', 'setOUTPUTdigital', 'OUTPUT 1', 'włączony'],
       [' ', 'ustaw serwo na wyjściu %m.output na pozycję %n', 'serwo', 'OUTPUT 1', 180],
