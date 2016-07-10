@@ -1,875 +1,646 @@
-/*
- *This program is free software: you can redistribute it and/or modify
- *it under the terms of the GNU General Public License as published by
- *the Free Software Foundation, either version 3 of the License, or
- *(at your option) any later version.
- *
- *This program is distributed in the hope that it will be useful,
- *but WITHOUT ANY WARRANTY; without even the implied warranty of
- *MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *GNU General Public License for more details.
- *
- *You should have received a copy of the GNU General Public License
- *along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
 (function(ext) {
-
-  var PIN_MODE = 0xF4,
-    REPORT_DIGITAL = 0xD0,
-    REPORT_ANALOG = 0xC0,
-    DIGITAL_MESSAGE = 0x90,
-    START_SYSEX = 0xF0,
-    END_SYSEX = 0xF7,
-    QUERY_FIRMWARE = 0x79,
-    REPORT_VERSION = 0xF9,
-    ANALOG_MESSAGE = 0xE0,
-    ANALOG_MAPPING_QUERY = 0x69,
-    ANALOG_MAPPING_RESPONSE = 0x6A,
-    CAPABILITY_QUERY = 0x6B,
-    CAPABILITY_RESPONSE = 0x6C;
-
-  var INPUT = 0x00,
-    OUTPUT = 0x01,
-    ANALOG = 0x02,
-    PWM = 0x03,
-    SERVO = 0x04,
-    SHIFT = 0x05,
-    I2C = 0x06,
-    ONEWIRE = 0x07,
-    STEPPER = 0x08,
-    ENCODER = 0x09,
-    IGNORE = 0x7F;
-
-  var LOW = 0,
-    HIGH = 1;
-  
-  var MAX_DATA_BYTES = 4096;
-  var MAX_PINS = 128;
-
-  var parsingSysex = false,
-    waitForData = 0,
-    executeMultiByteCommand = 0,
-    multiByteChannel = 0,
-    sysexBytesRead = 0,
-    storedInputData = new Uint8Array(MAX_DATA_BYTES);
-
-  var digitalOutputData = new Uint8Array(16),
-    digitalInputData = new Uint8Array(16),
-    analogInputData = new Uint16Array(16);
-
-  var analogChannel = new Uint8Array(MAX_PINS);
-  var pinModes = [];
-  for (var i = 0; i < 11; i++) pinModes[i] = [];
-
-  var majorVersion = 0,
-    minorVersion = 0;
-  
-  var connected = false;
-  var notifyConnection = false;
-  var device = null;
-  var inputData = null;
-
-  // TEMPORARY WORKAROUND
-  // Since _deviceRemoved is not used with Serial devices
-  // ping device regularly to check connection
-  var pinging = false;
-  var pingCount = 0;
-  var pinger = null;
-
-  var hwList = new HWList();
-
-  function HWList() {
-    this.devices = [];
-
-    this.add = function(dev, pin) {
-      var device = this.search(dev);
-      if (!device) {
-        device = {name: dev, pin: pin, val: 0};
-        this.devices.push(device);
-      } else {
-        device.pin = pin;
-        device.val = 0;
-      }
+	var poller = null;
+	var device = null;
+	var status = false;
+	var _selectors = {};
+	var _buffer = [];
+	var _isParseStartIndex = 0;
+	var _isParseStart = false;
+	var ports = {
+        Port1: 1,
+        Port2: 2,
+        Port3: 3,
+        Port4: 4,
+		M1:9,
+		M2:10,
+		'on board':7,
+		'light sensor on board':8
     };
+    var slots = {
+		Slot1:1,
+		Slot2:2
+	};
+	var switchStatus = {
+		On:1,
+		Off:0
+	};
+	var buttonStatus = {
+		pressed:0,
+		released:1
+	}
+	var shutterStatus = {
+		Press:0,
+		Release:1,
+		'Focus On':2,
+		'Focus Off':3,
+	};
+	var axis = {
+		'X-Axis':1,
+		'Y-Axis':2,
+		'Z-Axis':3
+	};
+	var ircodes = {	"A":69,
+		"B":70,
+		"C":71,
+		"D":68,
+		"E":67,
+		"F":13,
+		"↑":64,
+		"↓":25,
+		"←":7,
+		"→":9,
+		"R0":22,
+		"R1":12,
+		"R2":24,
+		"R3":94,
+		"R4":8,
+		"R5":28,
+		"R6":90,
+		"R7":66,
+		"R8":82,
+		"R9":74};
+	var __irCodes = [];
+	for(var key in ircodes){
+		__irCodes.push(ircodes[key]);
+	}
+	var tones = {"B0":31,"C1":33,"D1":37,"E1":41,"F1":44,"G1":49,"A1":55,"B1":62,
+			"C2":65,"D2":73,"E2":82,"F2":87,"G2":98,"A2":110,"B2":123,
+			"C3":131,"D3":147,"E3":165,"F3":175,"G3":196,"A3":220,"B3":247,
+			"C4":262,"D4":294,"E4":330,"F4":349,"G4":392,"A4":440,"B4":494,
+			"C5":523,"D5":587,"E5":659,"F5":698,"G5":784,"A5":880,"B5":988,
+			"C6":1047,"D6":1175,"E6":1319,"F6":1397,"G6":1568,"A6":1760,"B6":1976,
+			"C7":2093,"D7":2349,"E7":2637,"F7":2794,"G7":3136,"A7":3520,"B7":3951,
+	"C8":4186,"D8":4699};
+	var beats = {"Half":500,"Quater":250,"Eighth":125,"Whole":1000,"Double":2000,"Zero":0};
+	
+	function onParse(byte){
+		position = 0
+		value = 0	
+		_buffer.push(byte);
+		var len = _buffer.length;
+		if(len>= 2){
+			if (_buffer[len-1]==0x55 && _buffer[len-2]==0xff){
+				_isParseStartIndex = len-2	
+				_isParseStart = true;
+			}
+			if (_buffer[len-1]==0xa && _buffer[len-2]==0xd && _isParseStart == true){
+				_isParseStart = false;
 
-    this.search = function(dev) {
-      for (var i=0; i<this.devices.length; i++) {
-        if (this.devices[i].name === dev)
-          return this.devices[i];
-      }
-      return null;
-    };
-  }
+				var position = _isParseStartIndex+2;
+				var extId = _buffer[position];
+				position+=1;
+				var type = _buffer[position];
+				position+=1;
+				var value = 0;
+				// 1 byte 2 float 3 short 4 len+string 5 double
+				if (type == 1){
+					value = _buffer[position];
+				}
+				if (type == 2){
+					value = readFloat(position);
+					if(value<-255 || value>1023){
+						value = 0;
+					}
+				}
+				if (type == 3){
+					value = readShort(position);
+				}
+				if (type == 4){
+					value = readString(position);
+				}
+				if (type == 5){
+					value = readDouble(position);
+				}
+				if(type<=5){
+					if(value!=null){
+						_selectors["value_"+extId] = value;
+					}
+					_selectors["callback_"+extId](value);
+				}
+				_buffer = []
+			}
+		}
+	}
+	function readFloat(position){
+		var buf = new ArrayBuffer(4);
+		var intView = new Uint8Array(buf);
+		var floatView = new Float32Array(buf);
+		for(var i=0;i<4;i++){
+			intView[i] = _buffer[position+i];
+		}
+		return floatView[0];
+	}
+	function readShort(position){
+		var buf = new ArrayBuffer(2);
+		var intView = new Uint8Array(buf);
+		var shortView = new Int16Array(buf);
+		for(var i=0;i<2;i++){
+			intView[i] = _buffer[position+i];
+		}
+		return shortView[0];
+	}
+	function readString(position){
+		var l = _buffer[position]
+		position+=1
+		s = ""
+		for(var i=0;i<l;i++){
+			s += self.buffer[position+i].charAt(0)
+		}
+		return s
+	}
+	function readDouble(position){
+		var buf = new ArrayBuffer(8);
+		var intView = new Uint8Array(buf);
+		var doubleView = new Float64Array(buf);
+		for(var i=0;i<8;i++){
+			intView[i] = _buffer[position+i];
+		}
+		return doubleView[0];
+	}
+	function short2array(v){
+		var buf = new ArrayBuffer(2);
+		var intView = new Uint8Array(buf);
+		var shortView = new Int16Array(buf);
+		shortView[0] = v;
+		return [intView[0],intView[1]];
+	}
+	function float2array(v){
+		var buf = new ArrayBuffer(4);
+		var intView = new Uint8Array(buf);
+		var floatView = new Float32Array(buf);
+		floatView[0] = v;
+		return [intView[0],intView[1],intView[2],intView[3]];
+	}
+	function string2array(v){
+		var arr = v.split("");
+		for(var i=0;i<arr.length;i++){
+			arr[i] = arr[i].charCodeAt(0);
+		}
+		console.log(arr);
+		return arr;
+	}
+	function deviceOpened(dev) {
+	    // if device fails to open, forget about it
+	    if (dev == null) device = null;
 
-  function init() {
-
-    for (var i = 0; i < 16; i++) {
-      var output = new Uint8Array([REPORT_DIGITAL | i, 0x01]);
-      device.send(output.buffer);
+	    // otherwise start polling
+	   	poller = setInterval(function() { 
+	   		if(device!=null){
+	   			function callback(buffer){
+	   				var buf = new Uint8Array(buffer);
+	   				var len = buf[0];
+   					if(buf[0]>0){
+   						for(var i=0;i<len;i++){
+   							onParse(buf[i+1]);
+   						}
+   					}
+	   			}
+	   			device.read(callback,30);
+	   		}
+	   	}, 20);
+	};
+	var lastWritten = 0;
+	var _buffers = [];
+	var _isWaiting = false;
+	function addPackage(buffer,callback){
+		_buffers.push(buffer);
+		var extId = buffer[4];
+		setTimeout(function(){
+			callback(_selectors["value_"+extId]);
+		},100);
+		writePackage();
+	}
+	function writePackage(){
+		if(_buffers.length>0&&_isWaiting==false){
+			_isWaiting = true;
+			var buffer = _buffers[0];
+			_buffers.shift();
+			var msg = {};
+			msg.buffer = buffer;
+			mConnection.postMessage(msg);
+			setTimeout(function(){
+					_isWaiting = false;
+					writePackage();
+				},20); 
+		}
+	}
+	var arrayBufferFromArray = function(data){
+        var result = new Int8Array(data.length);
+        for(var i=0;i<data.length;i++){
+            result[i] = data[i];
+        }
+        return data;
     }
 
-    queryCapabilities();
+    //************* mBot Blocks ***************//
+    function genNextID(port, slot){
+		var nextID = port * 4 + slot;
+		return nextID;
+	}
+    ext.resetAll = function(){
+    	var data = [0x5,0xff, 0x55, 0x02, 0x0, 0x04];
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		})
+    };
+    ext.runBot = function(lSpeed,rSpeed){
+		var deviceId = 5;
+		var extId = 0;
+		var data = [extId, 0x02, deviceId].concat(short2array(-lSpeed)).concat(short2array(rSpeed));
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+    }
+    ext.runMotor = function(port,speed){
+    	if(typeof port=="string"){
+			port = ports[port];
+		}
+		var deviceId = 10;
+		var extId = 0;
+		var data = [extId, 0x02, deviceId, port].concat(short2array(speed));
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+    }
+    ext.runServo = function(port,slot,angle){
+    	if(typeof port=="string"){
+			port = ports[port];
+		}
+		if(typeof slot=="string"){
+			slot = slots[slot];
+		}
+		var deviceId = 11;
+		var extId = 0;
+		var data = [extId, 0x02, deviceId, port, slot, angle];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+    }
+    ext.runLedOnBoard = function(index,red,green,blue){
+		if(index == "all"){
+			index = 0;
+		}
+		runLed(7,2,index,red,green,blue)
+    }
+    ext.runLed = function(port,slot,index,red,green,blue){
+    	if(typeof port == "string"){
+			port = ports[port];
+		}
+		if(typeof slot == "string"){
+			slot = slots[slot];
+		}
+		if(port==ports["on board"]){
+			slot = 2;
+		}
+		if(index == "all"){
+			index = 0;
+		}
+		var deviceId = 8;
+		var extId = 0;
+		var data = [extId, 0x02, deviceId, port, slot, index, red*1, green*1, blue*1];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+    }
+	ext.runBuzzer = function(tone,beat){
+		if(typeof tone=="string"){
+			tone = tones[tone];
+		}
+		if(typeof beat=="string"){
+			beat = beats[beat];
+		}
+		var deviceId = 34;
+		var extId = 0;
+		var data = [extId, 0x02, deviceId].concat(short2array(tone)).concat(short2array(beat));
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+	};
+	ext.stopBuzzer = function(){
+		runBuzzer(0,0);
+	};
+	ext.showCharacters = function(port,x,y,msg){
+		if(typeof port == "string"){
+			port = ports[port];
+		}
+		var deviceId = 41;
+		var extId = 0;
+		var brightness = 6;
+		var data = [extId, 0x02, deviceId, port,1,brightness,3].concat(short2array(x)).concat(short2array(7+y)).concat([msg.length].concat(string2array(msg)));
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+	}
+	ext.showTime = function(port,hour,dot,min){
+		if(typeof port == "string"){
+			port = ports[port];
+		}
+		var deviceId = 41;
+		var extId = 0;
+		var brightness = 6;
+		var data = [extId, 0x02, deviceId, port,3,brightness,dot==":"?1:0].concat(short2array(hour)).concat(short2array(min));
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+	}
+	ext.runSevseg = function(port,num){
+		if(typeof port == "string"){
+			port = ports[port];
+		}
+		var deviceId = 9;
+		var extId = 0;
+		var data = [extId, 0x02, deviceId, port].concat(float2array(num));
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+	}
+	ext.runLightSensor = function(port,status){
+		if(typeof port == "string"){
+			port = ports[port];
+		}
+		if(typeof status == "string"){
+			status = switchStatus[status];
+		}
+		var deviceId = 3;
+		var extId = 0;
+		var data = [extId, 0x02, deviceId, port,status];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+	}
+	ext.runShutter = function(port,shutter){
+		if(typeof port == "string"){
+			port = ports[port];
+		}
+		if(typeof shutter == "string"){
+			shutter = shutterStatus[shutter];
+		}
+		var deviceId = 20;
+		var extId = 0;
+		var data = [extId, 0x02, deviceId, port,shutter];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+ 		addPackage(arrayBufferFromArray(data), function(){
+ 		});
+	}
+	ext.getButtonOnBoard = function(status,callback){
+		if(typeof status=="string"){
+			status = buttonStatus[status];
+		}
+		var deviceId = 31;
+		var port = 7;
+		var extId = genNextID(port,0);
+		var data = [extId, 0x01, deviceId, port];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = function(v){
+			callback(status==1?v>500:v<500);
+		}
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	var _lastTime = 0;
+	var _lastButtonStatus = [false,false];
+	ext.whenButtonPressed = function(status,callback){
+		if(typeof status == "string"){
+			status = buttonStatus[status];
+		}
+		if(new Date().getTime()-_lastTime>150){
+      		_lastTime = new Date().getTime();
+      		var deviceId = 31;
+			var port = 7;
+			var extId = genNextID(port,status);
+			var data = [extId, 0x01, deviceId, port];
+			data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+			_selectors["callback_"+extId] = function(v){
+				_lastButtonStatus[0] = status==1?v>500:v<500;
+				_lastButtonStatus[1] = !_lastButtonStatus[status];
+			}
+ 			addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+    	}
+    	return _lastButtonStatus[status];
+		
+	}
+	ext.getLightSensor = function(port,callback){
+		if(typeof port=="string"){
+			port = ports[port];
+		}
+		var deviceId = 3;
+		var extId = genNextID(port,0);
+		var data = [extId, 0x01, deviceId, port];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = callback; 
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	ext.getUltrasonic = function(port,callback){
+		if(typeof port=="string"){
+			port = ports[port];
+		}
+		var deviceId = 1;
+		var extId = 0;//genNextID(port,0);
+		var data = [extId, 0x01, deviceId, port];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = function(v){
+			callback(Math.floor(v*100.0)/100.0); 
+		}
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	ext.getLinefollower = function(port,callback){
+		if(typeof port=="string"){
+			port = ports[port];
+		}
+		var deviceId = 17;
+		var extId = genNextID(port,0);
+		var data = [extId, 0x01, deviceId, port];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = callback;
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	ext.getJoystick = function(port,ax,callback){
+		if(typeof port=="string"){
+			port = ports[port];
+		}
+		if(typeof ax=="string"){
+			ax = axis[ax];
+		}
+		var deviceId = 5;
+		var extId = genNextID(port,ax);
+		var data = [extId, 0x01, deviceId, port, ax];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = callback;
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	ext.getPotentiometer = function(port,callback){
+		if(typeof port=="string"){
+			port = ports[port];
+		}
+		var deviceId = 4;
+		var extId = genNextID(port,0);
+		var data = [extId, 0x01, deviceId, port];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = callback;
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	ext.getSoundSensor = function(port,callback){
+		if(typeof port=="string"){
+			port = ports[port];
+		}
+		var deviceId = 7;
+		var extId = genNextID(port,0);
+		var data = [extId, 0x01, deviceId, port];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = callback;
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	ext.getLimitswitch = function(port,slot,callback){
+		if(typeof port=="string"){
+			port = ports[port];
+		}
+		if(typeof slot=="string"){
+			slot = slots[slot];
+		}
+		var deviceId = 21;
+		var extId = genNextID(port,slot);
+		var data = [extId, 0x01, deviceId, port, slot];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = callback;
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	ext.getTemperature = function(port,callback){
+		if(typeof port=="string"){
+			port = ports[port];
+		}
+		var deviceId = 2;
+		var extId = genNextID(port,0);
+		var data = [extId, 0x01, deviceId, port];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = function(v){
+			callback(Math.floor(v*100)/100);
+		}
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	ext.getPirmotion = function(port,callback){
+		if(typeof port=="string"){
+			port = ports[port];
+		}
+		var deviceId = 6;
+		var extId = genNextID(port,0);
+		var data = [extId, 0x01, deviceId, port];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = callback;
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	ext.getIrRemote = function(code,callback){
+		var deviceId = 14;
+		if(typeof code=="string"){
+			code = ircodes[code];
+		}
+		var port = 11;
+		var slot = __irCodes.indexOf(code);
+		var halfSize = __irCodes.length >> 1;
+		if(slot >= halfSize){
+			++port;
+			slot -= halfSize;
+		}
+		var extId = genNextID(port,slot);
+		var data = [extId, 0x01, deviceId, 0, code];
+		data = [data.length+3, 0xff, 0x55, data.length].concat(data);
+		_selectors["callback_"+extId] = callback;
+ 		addPackage(arrayBufferFromArray(data), _selectors["callback_"+extId]);
+	}
+	var descriptor = {
+        blocks: [
+        	[" ", "move left %d.motorvalue right %d.motorvalue","runBot", 100, 100],
+			[" ", "set motor%d.motorPort speed %d.motorvalue","runMotor", "M1", 0],
+			[" ", "set servo %d.port %d.slot angle %d.servovalue","runServo", "Port1","Slot1", 90],
+			[" ", "set led %d.lport %d.slot %d.index red%d.value green%d.value blue%d.value","runLed","on board","Slot1","all",0,0,0],
+			[" ", "play tone on note %d.note beat %d.beats","runBuzzer", "C4", "Half"],
+			[" ", "show face %d.port x:%n y:%n characters:%s","showCharacters", "Port1", 0,0,"Hello"],
+			[" ", "show time %d.port hour:%n %m.points min:%n","showTime", "Port1", 10,":",20],
+			[" ", "show drawing %d.port x:%n y:%n draw:%m.drawFace","showDraw", "Port1", 0,0,"        "],
+			["-"],
+			[" ", "set 7-segments display%d.port number %n","runSevseg", "Port1", 100],
+			[" ", "set light sensor %d.aport led as %d.switchStatus","runLightSensor", "Port3", "On"],
+			[" ", "set camera shutter %d.port as %d.shutter","runShutter","Port1", "Press"],
+			["-"],
+			["h", "when button %m.buttonStatus","whenButtonPressed","pressed"],
+			["R", "button %m.buttonStatus","getButtonOnBoard","pressed"],
+			["R", "light sensor %d.laport","getLightSensor","light sensor on board"],
+			["-"],
+			["R", "ultrasonic sensor %d.port distance","getUltrasonic","Port1"],
+			["R", "line follower %d.port","getLinefollower","Port1"],
+			["R", "joystick %d.aport %d.Axis","getJoystick","Port3","X-Axis"],
+			["R", "potentiometer %d.aport","getPotentiometer","Port3"],
+			["R", "sound sensor %d.aport","getSoundSensor","Port3"],
+			["R", "limit switch %d.port %d.slot","getLimitswitch","Port1","Slot1"],
+			["R", "temperature %d.port %d.slot °C","getTemperature","Port3","Slot1"],
+			["R", "pir motion sensor %d.port","getPirmotion","Port2"],
+			["-"],
+			["R","ir remote %m.ircode pressed","getIrRemote","A"],
+			["-"],
+			[" ", "send mBot's message %s","runIR", "hello"],
+			["R", "mBot's message received","getIR"],
+			["-"],
+			["R", "timer","getTimer", "0"],	
+			[" ", "reset timer","resetTimer", "0"]
+			],
+        menus: {
+			motorPort:["M1","M2"],
+			slot:["Slot1","Slot2"],
+			index:["all",1,2],
+			Axis:["X-Axis","Y-Axis"],
+			port:["Port1","Port2","Port3","Port4"],
+			aport:["Port3","Port4"],
+			lport:["led on board","Port1","Port2","Port3","Port4"],
+			laport:["light sensor on board","Port3","Port4"],
+			direction:["run forward","run backward","turn right","turn left"],
+			points:[":"," "],
+			note:["C2","D2","E2","F2","G2","A2","B2","C3","D3","E3","F3","G3","A3","B3","C4","D4","E4","F4","G4","A4","B4","C5","D5","E5","F5","G5","A5","B5","C6","D6","E6","F6","G6","A6","B6","C7","D7","E7","F7","G7","A7","B7","C8","D8"],
+			beats:["Half","Quater","Eighth","Whole","Double","Zero"],
+			servovalue:[0,45,90,135,180],
+			motorvalue:[-255,-100,-50,0,50,100,255],
+			value:[0,20,60,150,255],
+			buttonStatus:["pressed","released"],
+			shutter:["Press","Release","Focus On","Focus Off"],
+			switchStatus:["Off","On"],
+			ircode:["A","B","C","D","E","F","↑","↓","←","→","Setting","R0","R1","R2","R3","R4","R5","R6","R7","R8","R9"],
+		}
+    };
+    var makeblockAppID = "clgdmbbhmdlbcgdffocenbbeclodbndh"; //unique app ID for Hummingbird Scratch App
+    var mConnection;
+    var mStatus = 0;
 
-    // TEMPORARY WORKAROUND
-    // Since _deviceRemoved is not used with Serial devices
-    // ping device regularly to check connection
-    pinger = setInterval(function() {
-      if (pinging) {
-        if (++pingCount > 6) {
-          clearInterval(pinger);
-          pinger = null;
-          connected = false;
-          if (device) device.close();
-          device = null;
-          return;
-        }
-      } else {
-        if (!device) {
-          clearInterval(pinger);
-          pinger = null;
-          return;
-        }
-        queryFirmware();
-        pinging = true;
-      }
-    }, 2000);
-  }
-
-  function hasCapability(pin, mode) {
-    if (pinModes[mode].indexOf(pin) > -1)
-      return true;
-    else
-      return false;
-  }
-
-  function queryFirmware() {
-    var output = new Uint8Array([START_SYSEX, QUERY_FIRMWARE, END_SYSEX]);
-    device.send(output.buffer);
-  }
- 
-  function queryCapabilities() {
-    console.log('Querying ' + device.id + ' capabilities');
-    var msg = new Uint8Array([
-        START_SYSEX, CAPABILITY_QUERY, END_SYSEX]);
-    device.send(msg.buffer);
-  }
-
-  function queryAnalogMapping() {
-    console.log('Querying ' + device.id + ' analog mapping');
-    var msg = new Uint8Array([
-        START_SYSEX, ANALOG_MAPPING_QUERY, END_SYSEX]);
-    device.send(msg.buffer);
-  }
-
-  function setDigitalInputs(portNum, portData) {
-    digitalInputData[portNum] = portData;
-  }
-
-  function setAnalogInput(pin, val) {
-    analogInputData[pin] = val;
-  }
-
-  function setVersion(major, minor) {
-    majorVersion = major;
-    minorVersion = minor;
-  }
-
-  function processSysexMessage() {
-    switch(storedInputData[0]) {
-      case CAPABILITY_RESPONSE:
-        for (var i = 1, pin = 0; pin < MAX_PINS; pin++) {
-          while (storedInputData[i++] != 0x7F) {
-            // This helped reduce error over a noisy wireless serial connection
-            if ( storedInputData[i-1] <= MAX_PINS )
-            {
-              pinModes[storedInputData[i-1]].push(pin);
+	ext._getStatus = function() {
+        return {status: mStatus, msg: mStatus==2?'Ready':'Not Ready'};
+    };
+	ext._shutdown = function() {
+	    if(poller) poller = clearInterval(poller);
+	    status = false;
+	}
+    function getMakeblockAppStatus() {
+        chrome.runtime.sendMessage(makeblockAppID, {message: "STATUS"}, function (response) {
+            if (response === undefined) { //Chrome app not found
+                console.log("Chrome app not found");
+                mStatus = 0;
+                setTimeout(getMakeblockAppStatus, 1000);
             }
-            i++; //Skip mode resolution
-          }
-          if (i == sysexBytesRead) break;
+            else if (response.status === false) { //Chrome app says not connected
+                mStatus = 1;
+                setTimeout(getMakeblockAppStatus, 1000);
+            }
+            else {// successfully connected
+                if (mStatus !==2) {
+                    console.log("Connected");
+                    mConnection = chrome.runtime.connect(makeblockAppID);
+                    mConnection.onMessage.addListener(onMsgApp);
+                }
+                mStatus = 2;
+                setTimeout(getMakeblockAppStatus, 1000);
+            }
+        });
+    };
+    function onMsgApp(msg) {
+		var buffer = msg.buffer;
+        for(var i=0;i<buffer.length;i++){
+        	onParse(buffer[i]);
         }
-        queryAnalogMapping();
-        break;
-      case ANALOG_MAPPING_RESPONSE:
-        for (var pin = 0; pin < analogChannel.length; pin++)
-          analogChannel[pin] = 127;
-        for (var i = 1; i < sysexBytesRead; i++)
-          analogChannel[i-1] = storedInputData[i];
-        for (var pin = 0; pin < analogChannel.length; pin++) {
-          if (analogChannel[pin] != 127) {
-            var out = new Uint8Array([
-                REPORT_ANALOG | analogChannel[pin], 0x01]);
-            device.send(out.buffer);
-          }
-        }
-        notifyConnection = true;
-        setTimeout(function() {
-          notifyConnection = false;
-        }, 100);
-        break;
-      case QUERY_FIRMWARE:
-        if (!connected) {
-          clearInterval(poller);
-          poller = null;
-          clearTimeout(watchdog);
-          watchdog = null;
-          connected = true;
-          setTimeout(init, 200);
-        }
-        pinging = false;
-        pingCount = 0;
-        break;
-    }
-  }
-
-  function processInput(inputData) { 
-    for (var i=0; i < inputData.length; i++) {
-      
-      if (parsingSysex) {
-        if (inputData[i] == END_SYSEX) {
-          parsingSysex = false;
-          processSysexMessage();
-        } else {
-          storedInputData[sysexBytesRead++] = inputData[i];
-        }
-      } else if (waitForData > 0 && inputData[i] < 0x80) {
-        storedInputData[--waitForData] = inputData[i];
-        if (executeMultiByteCommand !== 0 && waitForData === 0) {
-          switch(executeMultiByteCommand) {
-            case DIGITAL_MESSAGE:
-              setDigitalInputs(multiByteChannel, (storedInputData[0] << 7) + storedInputData[1]);
-              break;
-            case ANALOG_MESSAGE:
-              setAnalogInput(multiByteChannel, (storedInputData[0] << 7) + storedInputData[1]);
-              break;
-            case REPORT_VERSION:
-              setVersion(storedInputData[1], storedInputData[0]);
-              break;
-          }
-        }
-      } else {
-        if (inputData[i] < 0xF0) {
-          command = inputData[i] & 0xF0;
-          multiByteChannel = inputData[i] & 0x0F;
-        } else {
-          command = inputData[i];
-        }
-        switch(command) {
-          case DIGITAL_MESSAGE:
-          case ANALOG_MESSAGE:
-          case REPORT_VERSION:
-            waitForData = 2;
-            executeMultiByteCommand = command;
-            break;
-          case START_SYSEX:
-            parsingSysex = true;
-            sysexBytesRead = 0;
-            break;
-        }
-      }
-    }
-  }
-
-  function pinMode(pin, mode) {
-    var msg = new Uint8Array([PIN_MODE, pin, mode]);
-    device.send(msg.buffer);
-  }
-
-  function analogRead(pin) {
-    if (pin >= 0 && pin < pinModes[ANALOG].length) {
-      return Math.round((analogInputData[pin] * 100) / 1023);
-    } else {
-      var valid = [];
-      for (var i = 0; i < pinModes[ANALOG].length; i++)
-        valid.push(i);
-      console.log('ERROR: valid analog pins are ' + valid.join(', '));
-      return;
-    }
-  }
-
-  function digitalRead(pin) {
-    if (!hasCapability(pin, INPUT)) {
-      console.log('ERROR: valid input pins are ' + pinModes[INPUT].join(', '));
-      return;
-    }
-    pinMode(pin, INPUT);
-    return (digitalInputData[pin >> 3] >> (pin & 0x07)) & 0x01;
-  }
-
-  function analogWrite(pin, val) {
-    if (!hasCapability(pin, PWM)) {
-      console.log('ERROR: valid PWM pins are ' + pinModes[PWM].join(', '));
-      return;
-    }
-    if (val < 0) val = 0;
-    else if (val > 100) val = 100;
-    val = Math.round((val / 100) * 255);
-    pinMode(pin, PWM);
-    var msg = new Uint8Array([
-        ANALOG_MESSAGE | (pin & 0x0F),
-        val & 0x7F,
-        val >> 7]);
-    device.send(msg.buffer);
-  }
-
-  function digitalWrite(pin, val) {
-    if (!hasCapability(pin, OUTPUT)) {
-      console.log('ERROR: valid output pins are ' + pinModes[OUTPUT].join(', '));
-      return;
-    }
-    var portNum = (pin >> 3) & 0x0F;
-    if (val == LOW)
-      digitalOutputData[portNum] &= ~(1 << (pin & 0x07));
-    else
-      digitalOutputData[portNum] |= (1 << (pin & 0x07));
-    pinMode(pin, OUTPUT);
-    var msg = new Uint8Array([
-        DIGITAL_MESSAGE | portNum,
-        digitalOutputData[portNum] & 0x7F,
-        digitalOutputData[portNum] >> 0x07]);
-    device.send(msg.buffer);
-  }
-
-  function rotateServo(pin, deg) {
-    if (!hasCapability(pin, SERVO)) {
-      console.log('ERROR: valid servo pins are ' + pinModes[SERVO].join(', '));
-      return;
-    }
-    pinMode(pin, SERVO);
-    var msg = new Uint8Array([
-        ANALOG_MESSAGE | (pin & 0x0F),
-        deg & 0x7F,
-        deg >> 0x07]);
-    device.send(msg.buffer);
-  }
-
-  ext.whenConnected = function() {
-    if (notifyConnection) return true;
-    return false;
-  };
-
-  ext.analogWrite = function(pin, val) {
-    analogWrite(pin, val);
-  };
-
-  ext.digitalWrite = function(pin, val) {
-    if (val == 'on')
-      digitalWrite(pin, HIGH);
-    else if (val == 'off')
-      digitalWrite(pin, LOW);
-  };
-
-  ext.analogRead = function(pin) {
-    return analogRead(pin);
-  };
-
-  ext.digitalRead = function(pin) {
-    return digitalRead(pin);
-  };
-
-  ext.whenAnalogRead = function(pin, op, val) {
-    if (pin >= 0 && pin < pinModes[ANALOG].length) {
-      if (op == '>')
-        return analogRead(pin) > val;
-      else if (op == '<')
-        return analogRead(pin) < val;
-      else if (op == '=')
-        return analogRead(pin) == val;
-      else
-        return false;
-    }
-  };
-
-  ext.whenDigitalRead = function(pin, val) {
-    if (hasCapability(pin, INPUT)) {
-      if (val == 'on')
-        return digitalRead(pin);
-      else if (val == 'off')
-        return digitalRead(pin) === false;
-    }
-  };
-
-  ext.connectHW = function(hw, pin) {
-    hwList.add(hw, pin);
-  };
-
-  ext.rotateServo = function(servo, deg) {
-    var hw = hwList.search(servo);
-    if (!hw) return;
-    if (deg < 0) deg = 0;
-    else if (deg > 180) deg = 180;
-    rotateServo(hw.pin, deg);
-    hw.val = deg;
-  };
-
-  ext.changeServo = function(servo, change) {
-    var hw = hwList.search(servo);
-    if (!hw) return;
-    var deg = hw.val + change;
-    if (deg < 0) deg = 0;
-    else if (deg > 180) deg = 180;
-    rotateServo(hw.pin, deg);
-    hw.val = deg;
-  };
-
-  ext.setLED = function(led, val) {
-    var hw = hwList.search(led);
-    if (!hw) return;
-    analogWrite(hw.pin, val);
-    hw.val = val;
-  };
-
-  ext.changeLED = function(led, val) {
-    var hw = hwList.search(led);
-    if (!hw) return;
-    var b = hw.val + val;
-    if (b < 0) b = 0;
-    else if (b > 100) b = 100;
-    analogWrite(hw.pin, b);
-    hw.val = b;
-  };
-
-  ext.digitalLED = function(led, val) {
-    var hw = hwList.search(led);
-    if (!hw) return;
-    if (val == 'on') {
-      digitalWrite(hw.pin, HIGH);
-      hw.val = 255;
-    } else if (val == 'off') {
-      digitalWrite(hw.pin, LOW);
-      hw.val = 0;
-    }
-  };
-  
-  ext.readInput = function(name) {
-    var hw = hwList.search(name);
-    if (!hw) return;
-    return analogRead(hw.pin);
-  };
-
-  ext.whenButton = function(btn, state) {
-    var hw = hwList.search(btn);
-    if (!hw) return;
-    if (state === 'pressed')
-      return digitalRead(hw.pin);
-    else if (state === 'released')
-      return !digitalRead(hw.pin);
-  };
-
-  ext.isButtonPressed = function(btn) {
-    var hw = hwList.search(btn);
-    if (!hw) return;
-    return digitalRead(hw.pin);
-  };
-
-  ext.whenInput = function(name, op, val) {
-    var hw = hwList.search(name);
-    if (!hw) return;
-    if (op == '>')
-      return analogRead(hw.pin) > val;
-    else if (op == '<')
-      return analogRead(hw.pin) < val;
-    else if (op == '=')
-      return analogRead(hw.pin) == val;
-    else
-      return false;
-  };
-
-  ext.mapValues = function(val, aMin, aMax, bMin, bMax) {
-    var output = (((bMax - bMin) * (val - aMin)) / (aMax - aMin)) + bMin;
-    return Math.round(output);
-  };
- 
-  ext._getStatus = function() {
-    if (!connected)
-      return { status:1, msg:'Disconnected' };
-    else
-      return { status:2, msg:'Connected' };
-  };
-
-  ext._deviceRemoved = function(dev) {
-    console.log('Device removed');
-    // Not currently implemented with serial devices
-  };
-
-  var potentialDevices = [];
-  ext._deviceConnected = function(dev) {
-    potentialDevices.push(dev);
-    if (!device)
-      tryNextDevice();
-  };
-
-  var poller = null;
-  var watchdog = null;
-  function tryNextDevice() {
-    device = potentialDevices.shift();
-    if (!device) return;
-
-    // Moved set_receive_handler to the ready callback for open to fix a race condition.
-    console.log('Attempting connection with ' + device.id);
-    device.open({ stopBits: 0, bitRate: 57600, ctsFlowControl: 0 }, function() {
-      device.set_receive_handler(function(data) {
-        var inputData = new Uint8Array(data);
-        processInput(inputData);
-      });
-    });
-
-    poller = setInterval(function() {
-      queryFirmware();
-    }, 1000);
-
-    watchdog = setTimeout(function() {
-      clearInterval(poller);
-      poller = null;
-      device.set_receive_handler(null);
-      device.close();
-      device = null;
-      tryNextDevice();
-    }, 5000);
-  }
-
-  ext._shutdown = function() {
-    // TODO: Bring all pins down 
-    if (device) device.close();
-    if (poller) clearInterval(poller);
-    device = null;
-  };
-
-  // Check for GET param 'lang'
-  var paramString = window.location.search.replace(/^\?|\/$/g, '');
-  var vars = paramString.split("&");
-  var lang = 'en';
-  for (var i=0; i<vars.length; i++) {
-    var pair = vars[i].split('=');
-    if (pair.length > 1 && pair[0]=='lang')
-      lang = pair[1];
-  }
-
-  var blocks = {
-    en: [
-      ['h', 'when device is connected', 'whenConnected'],
-      [' ', 'connect %m.hwOut to pin %n', 'connectHW', 'led A', 3],
-      [' ', 'connect %m.hwIn to analog %n', 'connectHW', 'rotation knob', 0],
-      ['-'],
-      [' ', 'set %m.leds %m.outputs', 'digitalLED', 'led A', 'on'],
-      [' ', 'set %m.leds brightness to %n%', 'setLED', 'led A', 100],
-      [' ', 'change %m.leds brightness by %n%', 'changeLED', 'led A', 20],
-      ['-'],
-      [' ', 'rotate %m.servos to %n degrees', 'rotateServo', 'servo A', 180],
-      [' ', 'rotate %m.servos by %n degrees', 'changeServo', 'servo A', 20],
-      ['-'],
-      ['h', 'when %m.buttons is %m.btnStates', 'whenButton', 'button A', 'pressed'],
-      ['b', '%m.buttons pressed?', 'isButtonPressed', 'button A'],
-      ['-'],
-      ['h', 'when %m.hwIn %m.ops %n%', 'whenInput', 'rotation knob', '>', 50],
-      ['r', 'read %m.hwIn', 'readInput', 'rotation knob'],
-      ['-'],
-      [' ', 'set pin %n %m.outputs', 'digitalWrite', 1, 'on'],
-      [' ', 'set pin %n to %n%', 'analogWrite', 3, 100],
-      ['-'],
-      ['h', 'when pin %n is %m.outputs', 'whenDigitalRead', 1, 'on'],
-      ['b', 'pin %n on?', 'digitalRead', 1],
-      ['-'],
-      ['h', 'when analog %n %m.ops %n%', 'whenAnalogRead', 1, '>', 50],
-      ['r', 'read analog %n', 'analogRead', 0],
-      ['-'],
-      ['r', 'map %n from %n %n to %n %n', 'mapValues', 50, 0, 100, -240, 240]
-    ],
-    de: [
-      ['h', 'Wenn Arduino verbunden ist', 'whenConnected'],
-      [' ', 'Verbinde %m.hwOut mit Pin %n', 'connectHW', 'LED A', 3],
-      [' ', 'Verbinde %m.hwIn mit Analog %n', 'connectHW', 'Drehknopf', 0],
-      ['-'],
-      [' ', 'Schalte %m.leds %m.outputs', 'digitalLED', 'LED A', 'Ein'],
-      [' ', 'Setze %m.leds Helligkeit auf %n%', 'setLED', 'LED A', 100],
-      [' ', 'Ändere %m.leds Helligkeit um %n%', 'changeLED', 'LED A', 20],
-      ['-'],
-      [' ', 'Drehe %m.servos auf %n Grad', 'rotateServo', 'Servo A', 180],
-      [' ', 'Drehe %m.servos um %n Grad', 'changeServo', 'Servo A', 20],
-      ['-'],
-      ['h', 'Wenn %m.buttons ist %m.btnStates', 'whenButton', 'Taste A', 'gedrückt'],
-      ['b', '%m.buttons gedrückt?', 'isButtonPressed', 'Taste A'],
-      ['-'],
-      ['h', 'Wenn %m.hwIn %m.ops %n%', 'whenInput', 'Drehknopf', '>', 50],
-      ['r', 'Wert von %m.hwIn', 'readInput', 'Drehknopf'],
-      ['-'],
-      [' ', 'Schalte Pin %n %m.outputs', 'digitalWrite', 1, 'Ein'],
-      [' ', 'Setze Pin %n auf %n%', 'analogWrite', 3, 100],
-      ['-'],
-      ['h', 'Wenn Pin %n ist %m.outputs', 'whenDigitalRead', 1, 'Ein'],
-      ['b', 'Pin %n ein?', 'digitalRead', 1],
-      ['-'],
-      ['h', 'Wenn Analog %n %m.ops %n%', 'whenAnalogRead', 1, '>', 50],
-      ['r', 'Wert von Analog %n', 'analogRead', 0],
-      ['-'],
-      ['r', 'Setze %n von %n %n auf %n %n', 'mapValues', 50, 0, 100, -240, 240]
-    ],
-    it: [
-      ['h', 'quando Arduino è connesso', 'whenConnected'],
-      [' ', 'connetti il %m.hwOut al pin %n', 'connectHW', 'led A', 3],
-      [' ', 'connetti il %m.hwIn ad analog %n', 'connectHW', 'potenziometro', 0],
-      ['-'],
-      [' ', '%m.outputs il %m.leds', 'digitalLED', 'led A', 'on'],
-      [' ', 'porta luminosità di %m.leds a %n%', 'setLED', 'led A', 100],
-      [' ', 'cambia luminosità di %m.leds a %n%', 'changeLED', 'led A', 20],
-      ['-'],
-      [' ', 'ruota %m.servos fino a %n gradi', 'rotateServo', 'servo A', 180],
-      [' ', 'ruota %m.servos di %n gradi', 'changeServo', 'servo A', 20],
-      ['-'],
-      ['h', 'quando tasto %m.buttons è %m.btnStates', 'whenButton', 'pulsante A', 'premuto'],
-      ['b', '%m.buttons premuto?', 'isButtonPressed', 'pulsante A'],
-      ['-'],
-      ['h', 'quando %m.hwIn %m.ops %n%', 'whenInput', 'potenziometro', '>', 50],
-      ['r', 'leggi %m.hwIn', 'readInput', 'potenziometro'],
-      ['-'],
-      [' ', 'porta pin %n a %m.outputs', 'digitalWrite', 1, 'acceso'],
-      [' ', 'porta pin %n al %n%', 'analogWrite', 3, 100],
-      ['-'],
-      ['h', 'quando pin %n è %m.outputs', 'whenDigitalRead', 1, 'acceso'],
-      ['b', 'pin %n acceso?', 'digitalRead', 1],
-      ['-'],
-      ['h', 'quando analog %n %m.ops %n%', 'whenAnalogRead', 1, '>', 50],
-      ['r', 'leggi analog %n', 'analogRead', 0],
-      ['-'],
-      ['r', 'porta %n da %n %n a %n %n', 'mapValues', 50, 0, 100, -240, 240]
-    ],
-    ja: [
-      ['h', 'デバイスがつながったとき', 'whenConnected'],
-      [' ', '%m.hwOut を %n ピンへつなぐ', 'connectHW', 'led A', 3],
-      [' ', '%m.hwIn をアナログ入力 %n ピンへつなぐ', 'connectHW', 'rotation knob', 0],
-      ['-'],
-      [' ', '%m.leds を %m.outputs にする', 'digitalLED', 'led A', 'on'],
-      [' ', '%m.leds の明るさを %n% にする', 'setLED', 'led A', 100],
-      [' ', '%m.leds の明るさを %n% ずつ変える', 'changeLED', 'led A', 20],
-      ['-'],
-      [' ', '%m.servos を %n 度へ向ける', 'rotateServo', 'servo A', 180],
-      [' ', '%m.servos を %n 度ずつ回す', 'changeServo', 'servo A', 20],
-      ['-'],
-      ['h', '%m.buttons が %m.btnStates とき', 'whenButton', 'ボタン A', '押された'],
-      ['b', '%m.buttons 押された', 'isButtonPressed', 'ボタン A'],
-      ['-'],
-      ['h', '%m.hwIn が %m.ops %n% になったとき', 'whenInput', '回転つまみ', '>', 50],
-      ['r', '%m.hwIn の値', 'readInput', '回転つまみ'],
-      ['-'],
-      [' ', 'デジタル出力 %n を %m.outputs にする', 'digitalWrite', 1, 'on'],
-      [' ', 'アナログ出力 %n を %n% にする', 'analogWrite', 3, 100],
-      ['-'],
-      ['h', 'デジタル入力 %n が %m.outputs になったとき', 'whenDigitalRead', 1, 'on'],
-      ['b', 'デジタル入力 %n はオン', 'digitalRead', 1],
-      ['-'],
-      ['h', 'アナログ入力 %n が %m.ops %n% になったとき', 'whenAnalogRead', 1, '>', 50],
-      ['r', 'アナログ入力 %n の値', 'analogRead', 0],
-      ['-'],
-      ['r', '%n を %n ... %n から %n ... %n へ変換', 'mapValues', 50, 0, 100, -240, 240]
-    ],
-    nb: [
-      ['h', 'når enheten tilkobles', 'whenConnected'],
-      [' ', 'koble %m.hwOut til digital %n', 'connectHW', 'LED A', 3],
-      [' ', 'koble %m.hwIn til analog %n', 'connectHW', 'dreieknapp', 0],
-      ['-'],
-      [' ', 'sett %m.leds %m.outputs', 'digitalLED', 'LED A', 'på'],
-      [' ', 'sett %m.leds styrke til %n%', 'setLED', 'LED A', 100],
-      [' ', 'endre %m.leds styrke med %n%', 'changeLED', 'LED A', 20],
-      ['-'],
-      [' ', 'rotér %m.servos til %n grader', 'rotateServo', 'servo A', 180],
-      [' ', 'rotér %m.servos med %n grader', 'changeServo', 'servo A', 20],
-      ['-'],
-      ['h', 'når %m.buttons %m.btnStates', 'whenButton', 'knapp A', 'trykkes'],
-      ['b', '%m.buttons trykket?', 'isButtonPressed', 'knapp A'],
-      ['-'],
-      ['h', 'når %m.hwIn %m.ops %n%', 'whenInput', 'dreieknapp', '>', 50],
-      ['r', '%m.hwIn verdi', 'readInput', 'dreieknapp'],
-      ['-'],
-      [' ', 'sett digital %n %m.outputs', 'digitalWrite', 1, 'på'],
-      [' ', 'set utgang %n til %n%', 'analogWrite', 3, 100],
-      ['-'],
-      ['h', 'når digital %n er %m.outputs', 'whenDigitalRead', 1, 'på'],
-      ['b', 'digital %n på?', 'digitalRead', 1],
-      ['-'],
-      ['h', 'når analog %n %m.ops %n%', 'whenAnalogRead', 1, '>', 50],
-      ['r', 'analog %n verdi', 'analogRead', 0],
-      ['-'],
-      ['r', 'skalér %n fra %n %n til %n %n', 'mapValues', 50, 0, 100, -240, 240]
-    ],
-    nl: [
-      ['h', 'als het apparaat verbonden is', 'whenConnected'],
-      [' ', 'verbindt %m.hwOut met pin %n', 'connectHW', 'led A', 3],
-      [' ', 'verbindt %m.hwIn met analoog %n', 'connectHW', 'draaiknop', 0],
-      ['-'],
-      [' ', 'schakel %m.leds %m.outputs', 'digitalLED', 'led A', 'on'],
-      [' ', 'schakel %m.leds helderheid tot %n%', 'setLED', 'led A', 100],
-      [' ', 'verander %m.leds helderheid met %n%', 'changeLED', 'led A', 20],
-      ['-'],
-      [' ', 'draai %m.servos tot %n graden', 'rotateServo', 'servo A', 180],
-      [' ', 'draai %m.servos met %n graden', 'changeServo', 'servo A', 20],
-      ['-'],
-      ['h', 'wanneer %m.buttons is %m.btnStates', 'whenButton', 'knop A', 'in gedrukt'],
-      ['b', '%m.knoppen in gedrukt?', 'isButtonPressed', 'knoppen A'],
-      ['-'],
-      ['h', 'wanneer%m.hwIn %m.ops %n%', 'whenInput', 'draaiknop', '>', 50],
-      ['r', 'read %m.hwIn', 'readInput', 'draaiknop'],
-      ['-'],
-      [' ', 'schakel pin %n %m.outputs', 'digitalWrite', 1, 'on'],
-      [' ', 'schakel pin %n tot %n%', 'analogWrite', 3, 100],
-      ['-'],
-      ['h', 'wanneer pin %n is %m.outputs', 'whenDigitalRead', 1, 'on'],
-      ['b', 'pin %n aan?', 'digitalRead', 1],
-      ['-'],
-      ['h', 'wanneer analoge %n %m.ops %n%', 'whenAnalogRead', 1, '>', 50],
-      ['r', 'lees analoge %n', 'analogRead', 0],
-      ['-'],
-      ['r', 'zet %n van %n %n tot %n %n', 'mapValues', 50, 0, 100, -240, 240]
-    ],
-    pt: [
-      ['h', 'Quando dispositivo estiver conectado', 'whenConnected'],
-      [' ', 'conectar%m.hwOut para pino %n', 'connectHW', 'led A', 3],
-      [' ', 'conectar %m.hwIn para analogico %n', 'connectHW', 'potenciometro', 0],
-      ['-'],
-      [' ', 'estado %m.leds %m.outputs', 'digitalLED', 'led A', 'ligado'],
-      [' ', 'estado %m.leds brilho to %n%', 'setLED', 'led A', 100],
-      [' ', 'mudar %m.leds brilho em %n%', 'changeLED', 'led A', 20],
-      ['-'],
-      [' ', 'girar %m.servos para %n graus', 'rotateServo', 'servo A', 180],
-      [' ', 'girar %m.servos em %n graus', 'changeServo', 'servo A', 20],
-      ['-'],
-      ['h', 'quando %m.buttons is %m.btnStates', 'whenButton', 'botao A', 'pressionado'],
-      ['b', '%m.buttons pressionado?', 'isButtonPressed', 'botao A'],
-      ['-'],
-      ['h', 'quando %m.hwIn %m.ops %n%', 'whenInput', 'potenciometro', '>', 50],
-      ['r', 'read %m.hwIn', 'readInput', 'potenciometro'],
-      ['-'],
-      [' ', 'estado digital pino %n %m.outputs', 'digitalWrite', 1, 'ligado'],
-      [' ', 'estado analogico pino %n to %n%', 'analogWrite', 3, 100],
-      ['-'],
-      ['h', 'quando pino %n is %m.outputs', 'whenDigitalRead', 1, 'ligado'],
-      ['b', 'pino %n ligado?', 'digitalRead', 1],
-      ['-'],
-      ['h', 'quando valor analogico %n %m.ops %n%', 'whenAnalogRead', 1, '>', 50],
-      ['r', 'ler valor analogico %n', 'analogRead', 0],
-      ['-'],
-      ['r', 'mapear %n from %n %n to %n %n', 'mapValues', 50, 0, 100, -240, 240]
-    ],
-    el: [
-      ['h', 'Όταν η συσκευή είναι συνδεδεμένη', 'whenConnected'],
-      [' ', 'σύνδεσε το %m.hwOut στο pin %n', 'connectHW', 'led A', 3],
-      [' ', 'σύνδεσε το %m.hwIn στο αναλογικό %n', 'connectHW', 'ποντεσιόμετρο', 0],
-      ['-'],
-      [' ', 'άλλαξε το %m.leds σε %m.outputs', 'digitalLED', 'led A', 'ενεργοποιημένο'],
-      [' ', 'όρισε στο %m.leds τη φωτεινότητα ίση με %n%', 'setLED', 'led A', 100],
-      [' ', 'άλλαξε στο %m.leds τη φωτεινότητα κατά %n%', 'changeLED', 'led A', 20],
-      ['-'],
-      [' ', 'στρίψε το %m.servos στις %n μοίρες', 'rotateServo', 'servo A', 180],
-      [' ', 'στρίψε το %m.servos κατά %n μοίρες', 'changeServo', 'servo A', 20],
-      ['-'],
-      ['h', 'Όταν το %m.buttons είναι %m.btnStates', 'whenButton', 'κουμπί A', 'πατημένο'],
-      ['b', 'το %m.buttons πατήθηκε;', 'isButtonPressed', 'κουμπί A'],
-      ['-'],
-      ['h', 'Όταν το %m.hwIn %m.ops %n%', 'whenInput', 'ποντεσιόμετρο', '>', 50],
-      ['r', 'διάβασε %m.hwIn', 'readInput', 'ποντεσιόμετρο'],
-      ['-'],
-      [' ', 'άλλαξε το pin %n σε %m.outputs', 'digitalWrite', 1, 'ενεργοποιημένο'],
-      [' ', 'όρισε το pin %n σε %n%', 'analogWrite', 3, 100],
-      ['-'],
-      ['h', 'Όταν το pin %n είναι %m.outputs', 'whenDigitalRead', 1, 'ενεργοποιημένο'],
-      ['b', 'το pin %n είναι ενεργοποιημένο;', 'digitalRead', 1],
-      ['-'],
-      ['h', 'Όταν το αναλογικό %n %m.ops %n%', 'whenAnalogRead', 1, '>', 50],
-      ['r', 'διάβασε το αναλογικό %n', 'analogRead', 0],
-      ['-'],
-      ['r', 'συσχέτισε %n από %n %n έως %n %n', 'mapValues', 50, 0, 100, -240, 240]
-    ]
-  };
-
-  var menus = {
-    en: {
-      buttons: ['button A', 'button B', 'button C', 'button D'],
-      btnStates: ['pressed', 'released'],
-      hwIn: ['rotation knob', 'light sensor', 'temperature sensor'],
-      hwOut: ['led A', 'led B', 'led C', 'led D', 'button A', 'button B', 'button C', 'button D', 'servo A', 'servo B', 'servo C', 'servo D'],
-      leds: ['led A', 'led B', 'led C', 'led D'],
-      outputs: ['on', 'off'],
-      ops: ['>', '=', '<'],
-      servos: ['servo A', 'servo B', 'servo C', 'servo D']
-    },  
-    de: {
-      buttons: ['Taste A', 'Taste B', 'Taste C', 'Taste D'],
-      btnStates: ['gedrückt', 'losgelassen'],
-      hwIn: ['Drehknopf', 'Lichtsensor', 'Temperatursensor'],
-      hwOut: ['LED A', 'LED B', 'LED C', 'LED D', 'Taste A', 'Taste B', 'Taste C', 'Taste D', 'Servo A', 'Servo B', 'Servo C', 'Servo D'],
-      leds: ['LED A', 'LED B', 'LED C', 'LED D'],
-      outputs: ['Ein', 'Aus'],
-      ops: ['>', '=', '<'],
-      servos: ['Servo A', 'Servo B', 'Servo C', 'Servo D']
-    },
-    it: {
-      buttons: ['pulsante A', 'pulsante B', 'pulsante C', 'pulsante D'],
-      btnStates: ['premuto', 'rilasciato'],
-      hwIn: ['potenziometro', 'sensore di luce', 'sensore di temperatura'],
-      hwOut: ['led A', 'led B', 'led C', 'led D', 'pulsante A', 'pulsante B', 'pulsante C', 'pulsante D', 'servo A', 'servo B', 'servo C', 'servo D'],
-      leds: ['led A', 'led B', 'led C', 'led D'],
-      outputs: ['acceso', 'spento'],
-      ops: ['>', '=', '<'],
-      servos: ['servo A', 'servo B', 'servo C', 'servo D']
-    },
-    ja: {
-      buttons: ['ボタン A', 'ボタン B', 'ボタン C', 'ボタン D'],
-      btnStates: ['押された', '放された'],
-      hwIn: ['回転つまみ', '光センサー', '温度センサー'],
-      hwOut: ['led A', 'led B', 'led C', 'led D', 'ボタン A', 'ボタン B', 'ボタン C', 'ボタン D', 'サーボ A', 'サーボ B', 'サーボ C', 'サーボ D'],
-      leds: ['led A', 'led B', 'led C', 'led D'],
-      outputs: ['オン', 'オフ'],
-      ops: ['>', '=', '<'],
-      servos: ['サーボ A', 'サーボ B', 'サーボ C', 'サーボ D']
-    },
-    nb: {
-      buttons: ['knapp A', 'knapp B', 'knapp C', 'knapp D'],
-      btnStates: ['trykkes', 'slippes'],
-      hwIn: ['dreieknapp', 'lyssensor', 'temperatursensor'],
-      hwOut: ['LED A', 'LED B', 'LED C', 'LED D', 'knapp A', 'knapp B', 'knapp C', 'knapp D', 'servo A', 'servo B', 'servo C', 'servo D'],
-      leds: ['LED A', 'LED B', 'LED C', 'LED D'],
-      outputs: ['på', 'av'],
-      ops: ['>', '=', '<'],
-      servos: ['servo A', 'servo B', 'servo C', 'servo D']
-    },
-    nl: {
-      buttons: ['knop A', 'knop B', 'knop C', 'knop D'],
-      btnStates: ['ingedrukt', 'losgelaten'],
-      hwIn: ['draaiknop', 'licht sensor', 'temperatuur sensor'],
-      hwOut: ['led A', 'led B', 'led C', 'led D', 'knop A', 'knop B', 'knop C', 'knop D', 'servo A', 'servo B', 'servo C', 'servo D'],
-      leds: ['led A', 'led B', 'led C', 'led D'],
-      outputs: ['aan', 'uit'],
-      ops: ['>', '=', '<'],
-      servos: ['servo A', 'servo B', 'servo C', 'servo D']
-    },
-    pt: {
-      buttons: ['botao A', 'botao B', 'botao C', 'botao D'],
-      btnStates: ['pressionado', 'solto'],
-      hwIn: ['potenciometro', 'sensor de luz', 'sensor de temperatura'],
-      hwOut: ['led A', 'led B', 'led C', 'led D', 'botao A', 'botao B', 'botao C', 'botao D', 'servo A', 'servo B', 'servo C', 'servo D'],
-      leds: ['led A', 'led B', 'led C', 'led D'],
-      outputs: ['ligado', 'desligado'],
-      ops: ['>', '=', '<'],
-      servos: ['servo A', 'servo B', 'servo C', 'servo D']
-    },
-    el: {
-      buttons: ['κουμπί A', 'κουμπί B', 'κουμπί C', 'κουμπί D'],
-      btnStates: ['πατημένο', 'ελεύθερο'],
-      hwIn: ['ποντεσιόμετρο', 'φωτοαισθητήρα', 'θερμοαισθητήρα'],
-      hwOut: ['led A', 'led B', 'led C', 'led D', 'κουμπί A', 'κουμπί B', 'κουμπί C', 'κουμπί D', 'servo A', 'servo B', 'servo C', 'servo D'],
-      leds: ['led A', 'led B', 'led C', 'led D'],
-      outputs: ['ενεργοποιημένο', 'απενεργοποιημένο'],
-      ops: ['>', '=', '<'],
-      servos: ['servo A', 'servo B', 'servo C', 'servo D']
-    }
-  };
-
-  var descriptor = {
-    blocks: blocks[lang],
-    menus: menus[lang],
-    url: 'http://khanning.github.io/scratch-arduino-extension'
-  };
-
-  ScratchExtensions.register('Arduino', descriptor, ext, {type:'serial'});
-
+    };
+    getMakeblockAppStatus();
+	ScratchExtensions.register('LOFI Chrome', descriptor, ext);
 })({});
