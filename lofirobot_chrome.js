@@ -29,10 +29,9 @@
     
       var LOW = 0,
     HIGH = 1;
-
 	var poller = null;
 
-    var makeblockAppID = "mlfoaioelnbcgniahkghbinfdekkmdib"; //unique app ID for Hummingbird Scratch App
+    var makeblockAppID = "mlfoaioelnbcgniahkghbinfdekkmdib";
     var mConnection;
     var mStatus = 0;
     var _selectors = {};
