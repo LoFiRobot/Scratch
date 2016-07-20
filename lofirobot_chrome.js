@@ -44,13 +44,53 @@
 	var analog1enable = false;
 	var analog2enable = false;
 	var analog3enable = false;
+	
+	var pinmode = new Uint8Array(16);
+	
+	pinmode[2] = 0;
+	pinmode[3] = 1;
+	pinmode[4] = 0;
+	pinmode[5] = 1;
+	pinmode[6] = 1;
+	pinmode[7] = 0;
+	pinmode[8] = 0;
+	pinmode[9] = 1;
+	pinmode[10] = 1;
+	pinmode[11] = 1;
+	pinmode[12] = 1;
+	pinmode[13] = 1;
+	pinmode[14] = 1;
+	pinmode[15] = 1;
+	pinmode[16] = 1;
 
+
+	var msg1 = {};
+	var msg2 = {};
+	
 
   function pinMode(pin, mode) {
   var msg = {};
     msg.buffer = [PIN_MODE, pin, mode];
     mConnection.postMessage(msg);
     //addPackage(arrayBufferFromArray(msg.buffer), function(){});
+  }
+  
+  function pinMode_init() {
+  
+  pinMode(2,OUTPUT);
+  pinMode(4,OUTPUT);
+  pinMode(3,PWM);
+  
+  pinMode(7,OUTPUT);
+  pinMode(8,OUTPUT);
+  pinMode(5,PWM);
+  
+  pinMode(10,PWM);
+  pinMode(9,PWM);
+  pinMode(6,PWM);
+  
+  pinMode(16,OUTPUT);
+  console.log("Pins initialized");
   }
 
   function digitalWrite(pin, val) {
@@ -64,7 +104,11 @@
       digitalOutputData[portNum] |= (1 << (pin & 0x07));
       //console.log(digitalOutputData[portNum]);
       }
-    pinMode(pin, OUTPUT);
+      
+    	if (pinmode[pin] != 0) {  
+    	pinMode(pin, OUTPUT);
+    	}
+    
     var msg = {}
     msg.buffer = [
         DIGITAL_MESSAGE | portNum,
@@ -81,7 +125,11 @@
     if (val < 0) val = 0;
     else if (val > 100) val = 100;
     val = Math.round((val / 100) * 255);
-    pinMode(pin, PWM);
+    
+    	if (pinmode[pin] != 1) {
+    	pinMode(pin, PWM);
+    	}
+    
     var msg = {};
     msg.buffer =  [
         ANALOG_MESSAGE | (pin & 0x0F),
@@ -225,8 +273,21 @@
   
   var msg = {};
   
+  if (buf[0]==224){
+  msg1 = buf;
+  }
+  else {
+  msg2 = buf;
+  }
+  
+  msg = msg1.concat(msg2);
+  buf = msg;
+  
+  
+  
   if (buf[0] == 224 && buf.length == 12) {
-  analogRead0 = buf[1]   + 128*buf[2]; 
+  //analogRead0 = buf[1]   + 128*buf[2]; 
+  analogRead0 = Math.round((buf[1]   + 128*buf[2]) * 100 / 1023);
   //msg.buffer = [0xC0, 0];
   //analog1enable = false;
   //console.log("hi");
@@ -234,19 +295,28 @@
   }
   
     if (buf[3] == 225 && buf.length == 12) {
-  analogRead1 = buf[4] + 128*buf[5];
+  //analogRead1 = buf[4] + 128*buf[5];
+  analogRead1 = Math.round((buf[4]   + 128*buf[5]) * 100 / 1023);
   //msg.buffer = [0xC1, 0];
   }
     
     if (buf[6] == 226 && buf.length == 12) {
-  analogRead2 = buf[7] + 128*buf[8];
+  //analogRead2 = buf[7] + 128*buf[8];
+  analogRead2 = Math.round((buf[7]   + 128*buf[8]) * 100 / 1023);
   //msg.buffer = [0xC2, 0];
   }
     
     if (buf[9] == 227 && buf.length == 12) {
   analogRead3 = buf[10] + 128*buf[11];
+  analogRead3 = Math.round((buf[10]   + 128*buf[11]) * 100 / 1023);
   //msg.buffer = [0xC3, 0];
   }
+  
+  //console.log(buf);
+  
+  
+  
+  
   
   //console.log(buf);
   //mConnection.postMessage(msg);
@@ -269,29 +339,21 @@
     	mConnection.postMessage(msg);
     	analog0enable = true;
     	}
+    	
     
     if (input == 'INPUT 1'){
-    
-    
     reading = analogRead0;
     }
     
     if (input == 'INPUT 2'){
-    
-
-    
     reading = analogRead1;
     }
-        if (input == 'INPUT 3'){
-        
-
     
+    if (input == 'INPUT 3'){
     reading = analogRead2;
     }
     
     if (input == 'INPUT 4'){
-        
-    
     reading = analogRead3;
     }
     
@@ -346,7 +408,7 @@
 	url: 'http://www.lofirobot.com',
 	
         blocks: [
-			[' ', 'obracaj silnik %m.silnik w  kierunku %m.kierunek z mocą %n', 'silnik', 'M1','przód', 255],
+			[' ', 'obracaj silnik %m.silnik w  kierunku %m.kierunek z mocą %n', 'silnik', 'M1','przód', 100],
 			[' ', 'ustaw wyjście %m.output na wartość  %n%', 'setOUTPUT', 'OUTPUT 1', 100],
 			[' ', 'ustaw wyjście %m.output jako  %m.stan', 'setOUTPUTdigital', 'OUTPUT 1', 'włączony'],
 			//[' ', 'ustaw serwo na wyjściu %m.output na pozycję %n', 'serwo', 'OUTPUT 1', 180],
@@ -389,6 +451,8 @@
                     console.log("Connected");
                     mConnection = chrome.runtime.connect(LOFI_ID);
                     mConnection.onMessage.addListener(onMsgApp);
+                    
+                    pinMode_init();
                 }
                 mStatus = 2;
                 setTimeout(getAppStatus, 1000);
@@ -399,7 +463,7 @@
     
     function onMsgApp(msg) {
 		var buffer = msg.buffer;
-		console.log(buffer);
+		//console.log(buffer);
 		messageParser(buffer);
         for(var i=0;i<buffer.length;i++){
         //	onParse(buffer[i]);
