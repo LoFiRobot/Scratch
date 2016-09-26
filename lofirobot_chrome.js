@@ -363,30 +363,6 @@
     return reading;
   
   }
-    
-    ext.readUltrasound = function(input) {
-
-    //var msg = new Uint8Array([0xF0,0x08,14,0xF7]);
-    //device.send(msg.buffer);
-	    
-    var msg = {};
-    msg.buffer = new Uint8Array([0xF0,0x08,14,0xF7]);
-    mConnection.postMessage(msg);
-    //addPackage(arrayBufferFromArray(msg.buffer), function(){});
-  
-    
-  	var distance = dist_read;
-  	if (distance == 0) {
-  	distance = 1000;
-  	}
-      	//console.log(storedInputData[i]);
-    //console.log(distance);
-    
-    //this.arduino.board.sp.write(new Buffer([0xF0, 0x08, pinNumber, 0xF7])
-  
-  return distance;
-  
-  }
 
 
 ///////////mblock buffer
@@ -437,7 +413,7 @@
 			[' ', 'ustaw wyjście %m.output jako  %m.stan', 'setOUTPUTdigital', 'OUTPUT 1', 'włączony'],
 			//[' ', 'ustaw serwo na wyjściu %m.output na pozycję %n', 'serwo', 'OUTPUT 1', 180],
 			[' ', 'ustaw BUZZER jako %m.stan', 'buzzer', 'włączony'],
-			['r', 'czujnik odległości', 'readUltrasound', 'INPUT 1'],
+			
 			['r', 'odczytaj wejście %m.input', 'readINPUTanalog', 'INPUT 1']
 			
 			],
@@ -487,7 +463,7 @@
     
     function onMsgApp(msg) {
 		var buffer = msg.buffer;
-		console.log(buffer);
+		//console.log(buffer);
 		messageParser(buffer);
         for(var i=0;i<buffer.length;i++){
         //	onParse(buffer[i]);
