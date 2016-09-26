@@ -487,7 +487,7 @@
     
     function onMsgApp(msg) {
 		var buffer = msg.buffer;
-		//console.log(buffer);
+		console.log(buffer);
 		messageParser(buffer);
         for(var i=0;i<buffer.length;i++){
         //	onParse(buffer[i]);
