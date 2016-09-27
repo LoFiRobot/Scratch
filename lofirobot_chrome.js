@@ -67,6 +67,8 @@
 	var msg1 = {};
 	var msg2 = {};
 	
+	var dist_read  = 0;
+	var last_reading = 0;
 
   function pinMode(pin, mode) {
   var msg = {};
@@ -269,23 +271,80 @@
     }
   }
   
+  
+  function messageParser2(buf) {
+	  
+	  var msg = {};
+	  
+	  if (buf[0]==240) {
+		msg1 = buf;  
+	  }
+	  else {
+		  msg2 = buf;
+	  }
+	  
+	  msg.buffer = msg1.concat(msg2);
+	  
+	  if (msg.buffer.length == 4) {
+	  
+	  dist_read = msg.buffer[2] ;
+	  }
+	  
+	  if (dist_read == 0) {
+		  dist_read = 1000;
+	  }
+	  
+	  	  
+	  }
+  
+  
   function messageParser(buf) {
   
   var msg = {};
   
-  if (buf[0]==224){
+  if (buf[0]==227){
   msg1 = buf;
   }
-  else {
+  else if (buf[0] != 240) {
   msg2 = buf;
   }
   
-  msg = msg1.concat(msg2);
-  buf = msg;
+  
+  msg.buffer = msg1.concat(msg2);
+ 
+  
+  if (msg.buffer.length == 12){
+
+
+	  
+	  var i;
+	  for (i = 0; i < 10; i = i+3) {
+	
+	
+		   if (msg.buffer[i] == 224) {
+		   analogRead0 = Math.round((msg.buffer[i+1]   + 128*msg.buffer[i+2]) * 100 / 1023);
+		  
+  		   }
+  		   
+  		   if (msg.buffer[i] == 225) {
+	  	   analogRead1 = Math.round((msg.buffer[i+1]   + 128*msg.buffer[i+2]) * 100 / 1023);  
+  		   }
+  		   if (msg.buffer[i] == 226) {
+	  	   analogRead2 = Math.round((msg.buffer[i+1]   + 128*msg.buffer[i+2]) * 100 / 1023);   
+  		   }
+  		   if (msg.buffer[i] == 227) {
+	  	   analogRead3 = Math.round((msg.buffer[i+1]   + 128*msg.buffer[i+2]) * 100 / 1023); 
+  		   }
+		  
+	  } 
+	  
+	  //console.log(analogRead0);
+  }
   
   
   
-  if (buf[0] == 224 && buf.length == 12) {
+  /*
+  if (buf[0] == 227 && buf.length == 12) {
   //analogRead0 = buf[1]   + 128*buf[2]; 
   analogRead0 = Math.round((buf[1]   + 128*buf[2]) * 100 / 1023);
   //msg.buffer = [0xC0, 0];
@@ -294,32 +353,24 @@
   //console.log(buf);
   }
   
-    if (buf[3] == 225 && buf.length == 12) {
+    if (buf[3] == 226 && buf.length == 12) {
   //analogRead1 = buf[4] + 128*buf[5];
   analogRead1 = Math.round((buf[4]   + 128*buf[5]) * 100 / 1023);
   //msg.buffer = [0xC1, 0];
   }
     
-    if (buf[6] == 226 && buf.length == 12) {
+    if (buf[6] == 225 && buf.length == 12) {
   //analogRead2 = buf[7] + 128*buf[8];
   analogRead2 = Math.round((buf[7]   + 128*buf[8]) * 100 / 1023);
   //msg.buffer = [0xC2, 0];
   }
     
-    if (buf[9] == 227 && buf.length == 12) {
+    if (buf[9] == 224 && buf.length == 12) {
   analogRead3 = buf[10] + 128*buf[11];
   analogRead3 = Math.round((buf[10]   + 128*buf[11]) * 100 / 1023);
   //msg.buffer = [0xC3, 0];
   }
-  
-  //console.log(buf);
-  
-  
-  
-  
-  
-  //console.log(buf);
-  //mConnection.postMessage(msg);
+  */
   
   }
   
@@ -363,6 +414,32 @@
     return reading;
   
   }
+
+
+  ext.readUltrasound = function(input) {
+  
+    //var msg = new Uint8Array([0xF0,0x08,14,0xF7]);
+    //device.send(msg.buffer);
+    
+    var msg = {};
+    msg.buffer = [0xF0,0x08,14,0xF7];
+    //240 8 14 247  
+   
+    mConnection.postMessage(msg);
+    
+  	var distance = dist_read;
+  	if (distance == 0) {
+  	distance = 1000;
+  	}
+      	//console.log(storedInputData[i]);
+    //console.log(distance);
+    
+    //this.arduino.board.sp.write(new Buffer([0xF0, 0x08, pinNumber, 0xF7])
+  
+  return distance;
+  
+  }
+
 
 
 ///////////mblock buffer
@@ -413,7 +490,7 @@
 			[' ', 'ustaw wyjście %m.output jako  %m.stan', 'setOUTPUTdigital', 'OUTPUT 1', 'włączony'],
 			//[' ', 'ustaw serwo na wyjściu %m.output na pozycję %n', 'serwo', 'OUTPUT 1', 180],
 			[' ', 'ustaw BUZZER jako %m.stan', 'buzzer', 'włączony'],
-			
+			['r', 'czujnik odległości', 'readUltrasound', 'INPUT 1'],
 			['r', 'odczytaj wejście %m.input', 'readINPUTanalog', 'INPUT 1']
 			
 			],
@@ -464,12 +541,30 @@
     function onMsgApp(msg) {
 		var buffer = msg.buffer;
 		//console.log(buffer);
+		
+		
+		if (buffer[0]==227 || buffer[0]==224){
 		messageParser(buffer);
-        for(var i=0;i<buffer.length;i++){
-        //	onParse(buffer[i]);
-        
-        }
-        
+		last_reading = 0;
+		}
+		
+		//if ( a in { "apple": "", "banana": "" } ) { ... }
+		if (buffer[0] != 227 && buffer[0] != 224) {
+			if ( buffer[0] != 240 && last_reading == 0){
+		    messageParser(buffer);	
+		    }
+		}
+		
+		if (buffer[0]==240 || buffer.length<3){
+		messageParser2(buffer);
+		last_reading = 1;
+		}
+		
+		if (buffer[0] != 227 && buffer[0] != 224 ) {
+			if (buffer[0] != 240 && last_reading == 1){
+		    messageParser2(buffer);		
+		    }
+		}
     
         
     };
@@ -477,5 +572,5 @@
     
     
     
-	ScratchExtensions.register('LOFI Robot Chrome', descriptor, ext);
+	ScratchExtensions.register('LOFI Robot Chrome 0.2', descriptor, ext);
 })({});
