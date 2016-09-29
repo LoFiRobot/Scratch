@@ -584,5 +584,5 @@
     
     
     
-	ScratchExtensions.register('LOFI Robot Ultra', descriptor, ext);
+	ScratchExtensions.register('LOFI Robot Chrome 0.2', descriptor, ext);
 })({});
