@@ -67,6 +67,9 @@
 	var msg1 = {};
 	var msg2 = {};
 	
+	var servo_smooth = [];
+	var servo_position_smooth;
+	
 	var dist_read  = 0;
 	var last_reading = 0;
 
@@ -95,53 +98,10 @@
   console.log("Pins initialized");
   }
 
-  function digitalWrite(pin, val) {
 
-    var portNum = (pin >> 3) & 0x0F;
-    if (val == LOW) {
-      digitalOutputData[portNum] &= ~(1 << (pin & 0x07));
-      //console.log(digitalOutputData[portNum]);
-      }
-    else {
-      digitalOutputData[portNum] |= (1 << (pin & 0x07));
-      //console.log(digitalOutputData[portNum]);
-      }
-      
-    	if (pinmode[pin] != 0) {  
-    	pinMode(pin, OUTPUT);
-    	}
-    
-    var msg = {}
-    msg.buffer = [
-        DIGITAL_MESSAGE | portNum,
-        digitalOutputData[portNum] & 0x7F,
-        digitalOutputData[portNum] >> 0x07];
-     mConnection.postMessage(msg);
-     
-     //addPackage(arrayBufferFromArray(msg.buffer), function(){});
+  function valBetween(v, min, max) {
+    return (Math.min(max, Math.max(min, v)));
   }
-
-
-  function analogWrite(pin, val) {
-
-    if (val < 0) val = 0;
-    else if (val > 100) val = 100;
-    val = Math.round((val / 100) * 255);
-    
-    	//if (pinmode[pin] != 1) {
-    	pinMode(pin, PWM);
-    	//}
-    
-    var msg = {};
-    msg.buffer =  [
-        ANALOG_MESSAGE | (pin & 0x0F),
-        val & 0x7F,
-        val >> 7];
-     mConnection.postMessage(msg);
-     //addPackage(arrayBufferFromArray(msg.buffer), function(){});
-    //console.log(msg);
-  }
-  
   
 
   ext.buzzer = function(stan) {
@@ -162,9 +122,7 @@
 
   
   
-  function valBetween(v, min, max) {
-    return (Math.min(max, Math.max(min, v)));
-}
+
   
     ext.setOUTPUT = function(output, value) {
   
@@ -207,10 +165,7 @@
 	if (motor == 'M2') {
 	 msg.buffer = [203,speed];	
 	}
-	
-	
-	
-   
+
      mConnection.postMessage(msg);
 	  
 	  	
@@ -218,48 +173,69 @@
   
 
 
-
-  function rotateServo(pin, deg) {
-   
-    pinMode(pin, SERVO);
-    var msg = {};
-    msg.buffer = [
-        ANALOG_MESSAGE | (pin & 0x0F),
-        deg & 0x7F,
-        deg >> 0x07];
-    device.send(msg);
+  ext.servo_off = function() {
+	  var msg = {};
+	 msg.buffer = [212,99];	
+     mConnection.postMessage(msg);
+     console.log('off');
   }
 
-  ext.serwo = function(servo, deg) {
-	if (deg < 0) deg = 0;
-    else if (deg > 180) deg = 180;
+  ext.serwo = function(pin, deg) {
+	  
+	  /*
+	  servo_position_smooth = 0;
+	  
+	  
+	  servo_smooth[0] = deg;
+	  
+	  for (i = 20; i > 0; i--) {
+		  servo_smooth[i] = servo_smooth[i-1];
+		  //console.log(servo_smooth[i]);
+	  }
+	  
+	  
+	  for (i = 0; i < 20; i++) {
+		  servo_position_smooth = servo_position_smooth + servo_smooth[i];
+	  }
+	  
+	  */
+	  
    
-   if (servo == 'OUTPUT 1') {
-    rotateServo(10, deg);
-    }
-       if (servo == 'OUTPUT 2') {
-    rotateServo(9, deg);
-    }
-       if (servo == 'OUTPUT 3') {
-    rotateServo(6, deg);
-    }
-       if (servo == 'OUTPUT 4') {
-    rotateServo(5, deg);
-    }
-    
-  };
-  
-  
-    function analogRead(pin) {
-    if (pin >= 0 && pin < pinModes[ANALOG].length) {
-      return Math.round((analogInputData[pin] * 100) / 1023);
-    }
+   
+   	var msg = {};
+   	
+   	
+   	var output;
+   	if (pin == "OUTPUT 1") {
+	   	output = 208;
+	   //	console.log("111");
+   	}
+   	if (pin == "OUTPUT 2") {
+	   	output = 209;
+   	}
+   	if (pin == "OUTPUT 3") {
+	   	output = 210;
+   	}
+   	   	if (pin == "OUTPUT 4") {
+	   	output = 211
+   	}
+
+
+
+	 msg.buffer = [output,Math.round(deg)];	
+
+     mConnection.postMessage(msg);
+   //console.log(msg);
   }
+
+
+
   
   
   function messageParser2(buf) {
 	  
 	  var msg = {};
+	  //console.log(buf);
 	  
 	  if (buf[0]==240 && buf.length == 4) {
 	  
@@ -274,7 +250,53 @@
 	  }
   
   
+  
   function messageParser(buf) {
+	  
+  var msg = {};
+  
+  if (buf[0]==224){
+  msg1 = buf;
+  }
+  else if (buf[0] != 224) {
+  msg2 = buf;
+  }
+  
+  
+  msg.buffer = msg1.concat(msg2);
+  
+  if (msg.buffer.length > 10) {
+	  msg.buffer = msg.buffer.slice(0,10);
+	  //console.log("H");
+	  //console.log(msg.buffer);
+  }
+ 
+  
+  if (msg.buffer.length == 10){
+
+	
+		   if (msg.buffer[0] == 224) {
+		   analogRead0 = Math.round(msg.buffer[1] );
+  		   }		   
+  		   if (msg.buffer[2] == 225) {
+	  	   analogRead1 = Math.round(msg.buffer[3] );  
+  		   }
+  		   if (msg.buffer[4] == 226) {
+	  	   analogRead2 = Math.round(msg.buffer[5] );   
+  		   }
+  		   if (msg.buffer[6] == 227) {
+	  	   analogRead3 = Math.round(msg.buffer[7] ); 
+  		   }
+		  
+	  //} 
+	  
+	  //console.log(analogRead0);
+  }
+  
+  }
+  
+  
+  function messageParser22(buf) {
   
   var msg = {};
   msg.buffer = buf;
@@ -299,6 +321,9 @@
   		   if (msg.buffer[6] == 227) {
 	  	   analogRead3 = Math.round(msg.buffer[7] ); 
   		   }
+  		   if (msg.buffer[6] == 240) {
+	  	   dist_read = Math.round(msg.buffer[1] ); 
+  		   }
 		  
 	  //} 
 	  
@@ -315,17 +340,7 @@
     var reading = 0;
     var msg = {};
     
-    	if (analog0enable == false){
-        msg.buffer = [0xC0, 1];
-    	mConnection.postMessage(msg);
-    	msg.buffer = [0xC1, 1];
-    	mConnection.postMessage(msg);
-    	msg.buffer = [0xC2, 1];
-    	mConnection.postMessage(msg);
-    	msg.buffer = [0xC3, 1];
-    	mConnection.postMessage(msg);
-    	analog0enable = true;
-    	}
+
     	
     
     if (input == 'INPUT 1'){
@@ -378,42 +393,6 @@
 
 
 
-///////////mblock buffer
-
-	var _buffers = [];
-	var _isWaiting = false;
-	
-	
-	function addPackage(buffer,callback){
-		_buffers.push(buffer);
-		var extId = buffer[4];
-		setTimeout(function(){
-			callback(_selectors["value_"+extId]);
-		},100);
-		writePackage();
-	}
-	function writePackage(){
-		if(_buffers.length>0&&_isWaiting==false){
-			_isWaiting = true;
-			var buffer = _buffers[0];
-			_buffers.shift();
-			var msg = {};
-			msg.buffer = buffer;
-			mConnection.postMessage(msg);
-			setTimeout(function(){
-					_isWaiting = false;
-					writePackage();
-				},20); 
-		}
-	}
-	var arrayBufferFromArray = function(data){
-        var result = new Int8Array(data.length);
-        for(var i=0;i<data.length;i++){
-            result[i] = data[i];
-        }
-        return data;
-    }
-
 
 	
 	var descriptor = {
@@ -425,7 +404,8 @@
 			//[' ', '2obracaj silnik %m.silnik w  kierunku %m.kierunek z mocą %n', 'silnik2', 'M1','przód', 100],
 			[' ', 'ustaw wyjście %m.output na wartość  %n%', 'setOUTPUT', 'OUTPUT 1', 100],
 			//[' ', 'ustaw wyjście %m.output jako  %m.stan', 'setOUTPUTdigital', 'OUTPUT 1', 'włączony'],
-			//[' ', 'ustaw serwo na wyjściu %m.output na pozycję %n', 'serwo', 'OUTPUT 1', 180],
+			[' ', 'ustaw serwo na wyjściu %m.output na pozycję %n', 'serwo', 'OUTPUT 1', 0],
+			[' ', 'wyłącz wszystkie SERWO', 'servo_off'],
 			[' ', 'ustaw BUZZER jako %m.stan', 'buzzer', 'włączony'],
 			//[' ', 'ustaw BUZZER2 jako %m.stan', 'buzzer2', 'włączony'],
 			['r', 'czujnik odległości', 'readUltrasound', 'INPUT 1'],
@@ -478,22 +458,21 @@
     
     function onMsgApp(msg) {
 		var buffer = msg.buffer;
-		console.log(buffer);
+		//console.log(buffer);
 		
 		
-		if (buffer[0]==227 || buffer[0]==224){
+		if ( buffer[0]==224){
 		messageParser(buffer);
 		last_reading = 0;
 		}
 		
-		/*
-		if (buffer[0] != 227 && buffer[0] != 224) {
-			if ( buffer[0] != 240 && last_reading == 0){
+		
+		if (buffer[0] != 224 && last_reading == 0){
 		    messageParser(buffer);	
-		    last_reading = 3;
+		    last_reading = 1;
 		    }
-		}
-		*/
+		
+		
 		
 		if (buffer[0]==240 ){
 		messageParser2(buffer);
@@ -502,24 +481,14 @@
 		//console.log(buffer);
 		}
 		
-		/*
-		if (buffer[0] != 227 && buffer[0] != 224 ) {
-			if (buffer[0] != 240 && last_reading == 1){
-				if (buffer.length < 4){
-					//console.log("m2");
-				messageParser2(buffer);	
-				//console.log(buffer);
-				last_reading = 3;	
-				}
-		    }
-		}
-		*/
+
     
         
     };
+    
     getAppStatus();
     
     
     
-	ScratchExtensions.register('LOFI Robot Chrome v4', descriptor, ext);
+	ScratchExtensions.register('LOFI Robot Chrome v3', descriptor, ext);
 })({});
