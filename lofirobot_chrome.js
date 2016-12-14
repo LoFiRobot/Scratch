@@ -1,6 +1,3 @@
-//LOFI Robot ScratchX extension
-
-
 (function(ext) {
 
   var INPUT = 0x00,
@@ -347,7 +344,7 @@
 			//[' ', '2obracaj silnik %m.silnik w  kierunku %m.kierunek z mocą %n', 'silnik2', 'M1','przód', 100],
 			[' ', 'ustaw wyjście %m.output na wartość  %n%', 'setOUTPUT', 'OUTPUT 1', 100],
 			//[' ', 'ustaw wyjście %m.output jako  %m.stan', 'setOUTPUTdigital', 'OUTPUT 1', 'włączony'],
-			//[' ', 'ustaw serwo na wyjściu %m.output na pozycję %n', 'serwo', 'OUTPUT 1', 0],
+			[' ', 'ustaw serwo na wyjściu %m.output na pozycję %n', 'serwo', 'OUTPUT 1', 0],
 			//[' ', 'wyłącz wszystkie SERWO', 'servo_off'],
 			[' ', 'ustaw BUZZER jako %m.stan', 'buzzer', 'włączony'],
 			//[' ', 'ustaw BUZZER2 jako %m.stan', 'buzzer2', 'włączony'],
@@ -424,5 +421,5 @@
 
 
 
-	ScratchExtensions.register('LOFI Robot Chrome', descriptor, ext);
+	ScratchExtensions.register('LOFI Robot Chrome v4', descriptor, ext);
 })({});
