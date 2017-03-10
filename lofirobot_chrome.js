@@ -389,7 +389,7 @@
 
                     //pinMode_init();
                 }
-                mStatus = 2;
+                mStatus = 1;
                 setTimeout(getAppStatus, 1000);
             }
         });
@@ -397,6 +397,7 @@
 
 
     function onMsgApp(msg) {
+	    mStatus = 2;
 		var buffer = msg.buffer;
 		//console.log(buffer);
 
